@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Digital Teaching Board v4.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/libs/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg: #f0f2f8;
+            --panel: rgba(255,255,255,0.92);
+            --panel-solid: #ffffff;
+            --text: #1a1d2e;
+            --text-muted: #6b7280;
+            --primary: #5b6cf9;
+            --primary-glow: rgba(91,108,249,0.25);
+            --accent: #f97316;
+            --danger: #ef4444;
+            --success: #10b981;
+            --shadow: 0 8px 32px rgba(30,40,100,0.12);
+            --shadow-sm: 0 2px 8px rgba(30,40,100,0.08);
+            --border: rgba(91,108,249,0.12);
+            --hover: rgba(91,108,249,0.08);
+            --glass: blur(20px);
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+        [data-theme="dark"] {
+            --bg: #0d0f1a;
+            --panel: rgba(20,22,40,0.95);
+            --panel-solid: #14162a;
+            --text: #e8eaf6;
+            --text-muted: #9ca3af;
+            --primary: #7c8fff;
+            --primary-glow: rgba(124,143,255,0.2);
+            --shadow: 0 8px 32px rgba(0,0,0,0.5);
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+            --border: rgba(124,143,255,0.15);
+            --hover: rgba(124,143,255,0.1);
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter',system-ui,sans-serif; user-select:none; }
+        body { background:var(--bg); color:var(--text); overflow:hidden; touch-action:none; transition:background 0.3s, color 0.3s; }
+
+        #canvas-wrapper { position:absolute; top:0; left:0; width:100vw; height:100vh; z-index:1; }
+
+        /* ERASER CURSOR — square outline only */
+        #eraser-cursor {
+            position:fixed; pointer-events:none; z-index:9998; display:none;
+            border:2.5px solid var(--primary);
+            background: transparent;
+            transform:translate(-50%,-50%);
+            transition:width 0.1s, height 0.1s;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+            border-radius: 3px;
+        }
+
+        /* BOTTOM WORKSPACE */
+        #bottom-workspace {
+            position:absolute; bottom:18px; left:0; width:100%; display:flex;
+            flex-direction:column; align-items:center; z-index:10; gap:10px; pointer-events:none;
+        }
+        .glass-panel {
+            background:var(--panel); backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass);
+            border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow);
+            display:flex; align-items:center; gap:5px; padding:7px 11px; pointer-events:auto;
+        }
+
+        /* NAV ZOOM ROW */
+        #nav-zoom-row { display:flex; gap:16px; align-items:center; height:48px; }
+        #page-indicator { font-weight:700; font-size:14px; padding:0 8px; min-width:58px; text-align:center; color:var(--primary); }
+
+        /* MAIN TOOLBAR */
+        #main-toolbar { max-width:96vw; overflow-x:auto; scrollbar-width:none; }
+        #main-toolbar::-webkit-scrollbar { display:none; }
+
+        /* SIDE TOOLBAR (RIGHT) */
+        #side-toolbar {
+            position:absolute; right:16px; top:50%; transform:translateY(-50%);
+            z-index:10; display:flex; flex-direction:column; gap:6px; pointer-events:auto;
+        }
+        #side-toolbar .glass-panel {
+            flex-direction:column; padding:10px 8px; gap:4px; border-radius:20px;
+        }
+        #side-toolbar .sep-h { width:28px; height:1px; background:var(--border); margin:2px 0; }
+
+        /* BUTTONS */
+        .btn {
+            background:transparent; border:none; color:var(--text); width:42px; height:42px;
+            border-radius:var(--radius-sm); cursor:pointer; display:flex; align-items:center; justify-content:center;
+            font-size:1.1rem; transition:all 0.2s ease; position:relative;
+        }
+        .btn:hover { background:var(--hover); transform:translateY(-1px); }
+        .btn:active { transform:scale(0.93); }
+        .btn.active {
+            background:var(--primary); color:#fff;
+            box-shadow:0 4px 14px var(--primary-glow);
+        }
+        .btn.active:hover { transform:translateY(-1px); }
+        .btn-danger { color:var(--danger) !important; }
+        .btn-danger:hover { background:rgba(239,68,68,0.1) !important; }
+        .btn-accent { color:var(--accent); }
+
+        .sep { width:1px; height:28px; background:var(--border); margin:0 3px; }
+
+        /* THICKNESS DISPLAY */
+        #thickness-row {
+            display:none; align-items:center; gap:8px; padding:0 6px;
+        }
+        #thickness-preview {
+            border-radius:50%; background:var(--primary);
+            flex-shrink:0; transition:all 0.15s;
+        }
+        #thickness-pct {
+            font-size:12px; font-weight:700; color:var(--primary);
+            min-width:35px; text-align:right;
+        }
+        #size-slider-wrap { display:flex; align-items:center; gap:5px; }
+        input[type="range"] { -webkit-appearance:none; background:transparent; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance:none; height:16px; width:16px; border-radius:50%;
+            background:var(--primary); cursor:pointer; border:2px solid #fff;
+            box-shadow:0 2px 6px var(--primary-glow);
+        }
+        input[type="range"]::-webkit-slider-runnable-track {
+            height:4px; background:var(--border); border-radius:2px;
+        }
+        #size-slider { width:90px; }
+
+        /* COLOR BOX */
+        #current-color-box {
+            width:30px; height:30px; border-radius:8px; border:2px solid var(--border);
+            cursor:pointer; display:none; transition:transform 0.2s;
+            box-shadow:inset 0 0 4px rgba(0,0,0,0.15);
+        }
+        #current-color-box:hover { transform:scale(1.12); }
+
+        /* POPUPS */
+        .popup-menu {
+            position:absolute; bottom:85px; background:var(--panel); backdrop-filter:var(--glass);
+            border:1px solid var(--border); border-radius:var(--radius); padding:14px;
+            box-shadow:var(--shadow); z-index:20; opacity:0; visibility:hidden;
+            transition:0.2s all; transform:translateY(10px); pointer-events:auto; width:max-content;
+        }
+        .popup-menu.show { opacity:1; visibility:visible; transform:translateY(0); }
+
+        .color-sec { font-size:11px; font-weight:700; margin-bottom:7px; margin-top:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; }
+        .color-sec:first-child { margin-top:0; }
+        .color-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; }
+        .color-swatch {
+            width:28px; height:28px; border-radius:6px; cursor:pointer; border:1.5px solid var(--border);
+            transition:transform 0.1s, box-shadow 0.1s;
+        }
+        .color-swatch:hover { transform:scale(1.2); box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+
+        .bg-btns { display:flex; gap:8px; margin-top:14px; }
+        .bg-btns button {
+            flex:1; font-size:11px; font-weight:700; padding:7px 6px; border-radius:8px;
+            border:1px solid var(--border); background:var(--hover); cursor:pointer; color:var(--text);
+            transition:all 0.15s;
+        }
+        .bg-btns button:hover { background:var(--primary); color:#fff; border-color:var(--primary); }
+
+        /* OBJECT MENU */
+        #object-menu {
+            position:absolute; display:flex; gap:4px; background:var(--panel); padding:5px;
+            border-radius:10px; box-shadow:var(--shadow); z-index:200; pointer-events:auto;
+            visibility:hidden; opacity:0; transition:opacity 0.2s; border:1px solid var(--border);
+        }
+        #object-menu button {
+            background:none; border:none; font-size:15px; padding:5px 8px; cursor:pointer;
+            color:var(--text); border-radius:6px; transition:background 0.15s;
+        }
+        #object-menu button:hover { background:var(--hover); }
+
+        /* VIDEO CONTROLS */
+        #video-overlay-controls {
+            position:absolute; display:flex; align-items:center; gap:10px;
+            background:rgba(0,0,0,0.78); padding:9px 14px; border-radius:12px;
+            z-index:300; visibility:hidden; opacity:0; color:#fff; transition:0.2s; pointer-events:auto;
+        }
+        #video-overlay-controls i { cursor:pointer; font-size:17px; }
+        #video-overlay-controls input[type=range] { width:140px; }
+
+        /* LOADER */
+        #loader-overlay {
+            display:none; position:fixed; top:0; left:0; width:100vw; height:100vh;
+            background:rgba(0,0,0,0.65); z-index:999; backdrop-filter:blur(6px);
+            justify-content:center; align-items:center; flex-direction:column; color:#fff; font-size:1.4rem;
+        }
+        #loader-spinner { font-size:2.8rem; margin-bottom:10px; animation:spin 1s linear infinite; }
+        @keyframes spin { 100%{ transform:rotate(360deg); } }
+
+        /* HOME VIEW */
+        #home-view {
+            display:flex; flex-direction:column; height:100vh; width:100vw;
+            background:var(--bg); position:relative; z-index:5;
+        }
+        #home-header { margin:14px 14px 0; flex-wrap:wrap; gap:8px; }
+        #home-title { font-weight:800; font-size:18px; padding:0 6px; white-space:nowrap; color:var(--primary); }
+        #home-search-wrap {
+            display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--border);
+            border-radius:10px; padding:0 12px; flex:1; min-width:110px; height:36px;
+        }
+        #home-search-wrap input { border:none; background:transparent; outline:none; color:var(--text); font-size:14px; width:100%; }
+        #home-search-wrap i { color:var(--text-muted); }
+        #home-fav-toggle.active { background:var(--primary); color:#fff; }
+        #home-breadcrumb { padding:8px 24px 4px; font-size:13px; color:var(--text-muted); min-height:20px; }
+        #home-breadcrumb .crumb { cursor:pointer; transition:color 0.15s; }
+        #home-breadcrumb .crumb:hover { color:var(--primary); }
+        #home-grid {
+            flex:1; overflow-y:auto; display:grid;
+            grid-template-columns:repeat(auto-fill, minmax(110px,1fr));
+            gap:14px; padding:8px 18px 100px; align-content:start;
+        }
+        .home-card {
+            position:relative; background:var(--panel); border:1px solid var(--border);
+            border-radius:var(--radius); padding:16px 8px 10px; display:flex;
+            flex-direction:column; align-items:center; cursor:pointer; box-shadow:var(--shadow-sm);
+            transition:transform 0.18s, box-shadow 0.18s;
+        }
+        .home-card:hover { transform:translateY(-3px); box-shadow:var(--shadow); }
+        .home-card .card-icon { font-size:28px; color:var(--primary); margin-bottom:8px; position:relative; }
+        .home-card .fav-badge { position:absolute; top:-4px; right:-12px; font-size:11px; color:#f59e0b; }
+        .home-card .card-name {
+            font-size:12px; text-align:center; word-break:break-word; max-width:100%;
+            overflow:hidden; text-overflow:ellipsis; display:-webkit-box;
+            -webkit-line-clamp:2; -webkit-box-orient:vertical; font-weight:500;
+        }
+        .home-card .card-menu-btn {
+            position:absolute; top:4px; right:4px; background:none; border:none;
+            color:var(--text-muted); padding:5px 7px; border-radius:6px; cursor:pointer; font-size:12px;
+        }
+        .home-card .card-menu-btn:hover { background:var(--hover); color:var(--text); }
+        #home-empty { text-align:center; margin-top:60px; color:var(--text-muted); font-size:14px; grid-column:1/-1; line-height:1.8; }
+
+        /* CARD CONTEXT MENU */
+        .ctx-item {
+            display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px;
+            background:none; border:none; color:var(--text); font-size:13.5px;
+            cursor:pointer; border-radius:8px; text-align:left; font-family:inherit;
+        }
+        .ctx-item:hover { background:var(--hover); }
+        #card-context-menu { width:195px; bottom:auto; }
+
+        /* MODE PICKER MODAL */
+        #mode-modal {
+            display:none; position:fixed; top:0; left:0; width:100vw; height:100vh;
+            background:rgba(0,0,0,0.55); z-index:500; backdrop-filter:blur(8px);
+            justify-content:center; align-items:center;
+        }
+        #mode-modal.show { display:flex; }
+        #mode-modal-inner {
+            background:var(--panel-solid); border-radius:24px; padding:36px 28px;
+            box-shadow:var(--shadow); border:1px solid var(--border);
+            display:flex; flex-direction:column; align-items:center; gap:24px; max-width:340px; width:90%;
+        }
+        #mode-modal h2 { font-size:22px; font-weight:800; color:var(--primary); text-align:center; }
+        #mode-modal p { font-size:13px; color:var(--text-muted); text-align:center; margin-top:-14px; }
+        #mode-modal-btns { display:flex; gap:14px; width:100%; }
+        .mode-btn {
+            flex:1; padding:18px 10px; border-radius:16px; border:2px solid var(--border);
+            background:var(--hover); cursor:pointer; display:flex; flex-direction:column;
+            align-items:center; gap:10px; transition:all 0.2s; color:var(--text); font-family:inherit;
+        }
+        .mode-btn i { font-size:26px; }
+        .mode-btn span { font-size:14px; font-weight:700; }
+        .mode-btn small { font-size:11px; color:var(--text-muted); text-align:center; }
+        .mode-btn:hover, .mode-btn.selected { background:var(--primary); color:#fff; border-color:var(--primary); }
+        .mode-btn:hover small, .mode-btn.selected small { color:rgba(255,255,255,0.75); }
+        #mode-ok-btn {
+            width:100%; padding:13px; border-radius:12px; border:none; background:var(--primary);
+            color:#fff; font-size:15px; font-weight:700; cursor:pointer; font-family:inherit;
+            transition:opacity 0.2s;
+        }
+        #mode-ok-btn:hover { opacity:0.9; }
+
+        /* MODE BADGE */
+        #mode-badge {
+            position:absolute; top:16px; left:50%; transform:translateX(-50%);
+            z-index:15; pointer-events:auto;
+        }
+        #mode-badge-inner {
+            display:flex; background:var(--panel); border:1px solid var(--border);
+            border-radius:30px; box-shadow:var(--shadow-sm); padding:4px; gap:4px;
+        }
+        .mbtn {
+            padding:6px 16px; border-radius:24px; border:none; background:transparent;
+            color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer;
+            font-family:inherit; transition:all 0.2s;
+        }
+        .mbtn.active { background:var(--primary); color:#fff; box-shadow:0 2px 10px var(--primary-glow); }
+
+        /* URL PANEL */
+        #url-input-panel { left:50%; transform:translate(-50%,10px); }
+        #url-input-panel input[type="text"] {
+            width:230px; padding:10px 12px; border-radius:9px; border:1.5px solid var(--border);
+            background:var(--bg); color:var(--text); font-size:14px; outline:none;
+            transition:border-color 0.2s; font-family:inherit;
+        }
+        #url-input-panel input[type="text"]:focus { border-color:var(--primary); }
+        .url-actions { display:flex; gap:8px; margin-top:10px; }
+        .url-actions button {
+            flex:1; padding:9px; border-radius:9px; border:1.5px solid var(--border);
+            cursor:pointer; font-weight:700; font-family:inherit; transition:all 0.15s; font-size:13px;
+        }
+        #url-insert-btn { background:var(--primary); color:#fff; border-color:var(--primary); }
+        #url-cancel-btn { background:var(--hover); color:var(--text); }
+
+        /* TOAST */
+        #toast {
+            position:fixed; bottom:110px; left:50%; transform:translateX(-50%);
+            background:rgba(20,22,40,0.92); color:#fff; padding:10px 22px;
+            border-radius:20px; z-index:9999; opacity:0; transition:opacity 0.3s;
+            pointer-events:none; font-size:13.5px; font-weight:500; border:1px solid var(--border);
+            backdrop-filter:blur(10px);
+        }
+
+        /* AUTO-SAVE INDICATOR */
+        #autosave-indicator {
+            position:fixed; top:16px; right:70px; z-index:20;
+            font-size:11px; font-weight:600; color:var(--success); opacity:0;
+            transition:opacity 0.4s; pointer-events:none; background:var(--panel);
+            padding:4px 10px; border-radius:20px; border:1px solid var(--border);
+        }
+        #autosave-indicator.show { opacity:1; }
+
+        /* FILE NAME LABEL */
+        #file-name-label {
+            font-weight:700; font-size:12px; max-width:110px; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; cursor:pointer; padding:0 8px;
+            color:var(--primary);
+        }
+
+        /* AUTOSAVE TOGGLE BTN */
+        #btn-autosave {
+            font-size:10px; font-weight:700; padding:0 8px; height:42px; width:auto;
+            border-radius:var(--radius-sm); border:1.5px solid var(--border);
+            background:transparent; color:var(--text-muted); cursor:pointer;
+            transition:all 0.2s; white-space:nowrap; display:flex; align-items:center; gap:4px;
+        }
+        #btn-autosave:hover { background:var(--hover); }
+        #btn-autosave.active { background:var(--success); color:#fff; border-color:var(--success); }
+
+        /* LASER */
+        .laser-point {
+            position:fixed; width:10px; height:10px; background:#ff0040; border-radius:50%;
+            pointer-events:none; transition:opacity 0.4s, transform 0.4s;
+            box-shadow:0 0 14px #ff0040; z-index:9999;
+        }
+
+        /* SHAPES SUBMENU */
+        #shapes-submenu { left:50%; transform:translate(-50%,10px); }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar { width:5px; height:5px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:var(--border); border-radius:10px; }
+
+        /* SAVE CONFIRM MODAL */
+        #save-confirm-modal {
+            display:none; position:fixed; top:0; left:0; width:100vw; height:100vh;
+            background:rgba(0,0,0,0.55); z-index:600; backdrop-filter:blur(8px);
+            justify-content:center; align-items:center;
+        }
+        #save-confirm-modal.show { display:flex; }
+        #save-confirm-inner {
+            background:var(--panel-solid); border-radius:20px; padding:30px 24px;
+            box-shadow:var(--shadow); border:1px solid var(--border);
+            display:flex; flex-direction:column; align-items:center; gap:18px;
+            max-width:300px; width:90%; text-align:center;
+        }
+        #save-confirm-inner h3 { font-size:18px; font-weight:800; color:var(--primary); }
+        #save-confirm-inner p { font-size:13px; color:var(--text-muted); }
+        #save-confirm-btns { display:flex; gap:10px; width:100%; }
+        #save-confirm-btns button {
+            flex:1; padding:11px; border-radius:10px; border:none; font-size:14px; font-weight:700;
+            cursor:pointer; font-family:inherit; transition:all 0.15s;
+        }
+        #scb-save { background:var(--primary); color:#fff; }
+        #scb-save:hover { opacity:0.9; }
+        #scb-nosave { background:var(--hover); color:var(--text); border:1.5px solid var(--border); }
+        #scb-nosave:hover { background:var(--danger); color:#fff; border-color:var(--danger); }
+        #scb-cancel { background:var(--hover); color:var(--text-muted); border:1.5px solid var(--border); }
+    </style>
+</head>
+<body data-theme="light">
+
+    <div id="loader-overlay">
+        <i id="loader-spinner" class="fa-solid fa-circle-notch"></i>
+        <div id="loader-text">Processing...</div>
+    </div>
+
+    <div id="toast"></div>
+    <div id="autosave-indicator"><i class="fa-solid fa-cloud-arrow-up" style="margin-right:4px;"></i>Auto Saved</div>
+
+    <!-- ERASER CURSOR — square outline -->
+    <div id="eraser-cursor"></div>
+
+    <!-- MODE MODAL -->
+    <div id="mode-modal">
+        <div id="mode-modal-inner">
+            <h2>Board Mode चुनें</h2>
+            <p>View या Edit mode में open करें</p>
+            <div id="mode-modal-btns">
+                <button class="mode-btn" id="mode-view-btn" onclick="selectMode('view')">
+                    <i class="fa-solid fa-eye"></i>
+                    <span>View</span>
+                    <small>केवल देखें, pen & laser</small>
+                </button>
+                <button class="mode-btn" id="mode-edit-btn" onclick="selectMode('edit')">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                    <span>Edit</span>
+                    <small>सभी tools उपलब्ध</small>
+                </button>
+            </div>
+            <button id="mode-ok-btn" onclick="confirmMode()">Open Board</button>
+        </div>
+    </div>
+
+    <!-- SAVE CONFIRM MODAL -->
+    <div id="save-confirm-modal">
+        <div id="save-confirm-inner">
+            <h3><i class="fa-solid fa-floppy-disk" style="margin-right:8px;"></i>Save करें?</h3>
+            <p>Board में unsaved changes हैं। Home जाने से पहले save करना चाहते हैं?</p>
+            <div id="save-confirm-btns">
+                <button id="scb-cancel">Cancel</button>
+                <button id="scb-nosave">Don't Save</button>
+                <button id="scb-save">Save & Go</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HOME VIEW -->
+    <div id="home-view">
+        <div id="home-header" class="glass-panel">
+            <button class="btn" id="home-back-btn" style="display:none;"><i class="fa-solid fa-arrow-left"></i></button>
+            <div id="home-title"><i class="fa-solid fa-chalkboard-teacher" style="margin-right:6px;"></i>My Boards</div>
+            <div id="home-search-wrap">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="home-search" placeholder="Search boards...">
+            </div>
+            <button class="btn" id="home-fav-toggle" title="Favorites"><i class="fa-regular fa-star"></i></button>
+            <button class="btn" id="home-new-folder" title="New Folder"><i class="fa-solid fa-folder-plus"></i></button>
+            <button class="btn" id="home-new-file" title="New Board"><i class="fa-solid fa-plus"></i></button>
+            <button class="btn" id="home-theme" title="Toggle Theme"><i class="fa-solid fa-moon"></i></button>
+        </div>
+        <div id="home-breadcrumb"></div>
+        <div id="home-grid"></div>
+    </div>
+
+    <!-- CARD CONTEXT MENU -->
+    <div class="popup-menu" id="card-context-menu">
+        <button class="ctx-item" id="cctx-rename"><i class="fa-solid fa-pen"></i> Rename</button>
+        <button class="ctx-item" id="cctx-favorite"><i class="fa-regular fa-star"></i> <span id="cctx-fav-label">Add Favorite</span></button>
+        <button class="ctx-item" id="cctx-copy-folder" style="display:none;"><i class="fa-solid fa-folder-open"></i> Copy as New Folder</button>
+        <button class="ctx-item" id="cctx-delete" style="color:var(--danger);"><i class="fa-solid fa-trash"></i> Delete</button>
+    </div>
+
+    <!-- BOARD VIEW -->
+    <div id="board-view" style="display:none;">
+
+        <div id="canvas-wrapper"><canvas id="board"></canvas></div>
+
+        <!-- MODE BADGE (top center) -->
+        <div id="mode-badge">
+            <div id="mode-badge-inner">
+                <button class="mbtn" id="mb-view" onclick="switchBoardMode('view')"><i class="fa-solid fa-eye" style="margin-right:5px;"></i>View</button>
+                <button class="mbtn active" id="mb-edit" onclick="switchBoardMode('edit')"><i class="fa-solid fa-pen-to-square" style="margin-right:5px;"></i>Edit</button>
+            </div>
+        </div>
+
+        <!-- OBJECT MENU -->
+        <div id="object-menu">
+            <button id="ctx-open-link" title="Open Link" style="display:none;color:var(--primary);"><i class="fa-solid fa-up-right-from-square"></i></button>
+            <button id="ctx-mirror-x" title="Flip H"><i class="fa-solid fa-arrows-left-right"></i></button>
+            <button id="ctx-mirror-y" title="Flip V"><i class="fa-solid fa-arrows-up-down"></i></button>
+            <button id="ctx-copy" title="Copy"><i class="fa-regular fa-copy"></i></button>
+            <button id="ctx-delete" title="Delete" class="btn-danger"><i class="fa-solid fa-trash"></i></button>
+        </div>
+
+        <!-- VIDEO CONTROLS -->
+        <div id="video-overlay-controls">
+            <i class="fa-solid fa-play" id="vid-play-pause"></i>
+            <input type="range" id="vid-seek" value="0" min="0" max="100">
+        </div>
+
+        <!-- RIGHT SIDE TOOLBAR (Media/Insert tools) -->
+        <div id="side-toolbar">
+            <div class="glass-panel" id="side-panel-insert">
+                <button class="btn" id="btn-text-side" title="Text Tool" data-side-tool="text"><i class="fa-solid fa-t"></i></button>
+                <button class="btn" id="btn-image-side" title="Insert Image"><i class="fa-regular fa-image"></i></button>
+                <button class="btn" id="btn-video-side" title="Insert Video"><i class="fa-solid fa-film"></i></button>
+                <div class="sep-h"></div>
+                <button class="btn" id="btn-url-side" title="Insert URL Link"><i class="fa-solid fa-link"></i></button>
+                <div class="sep-h"></div>
+                <button class="btn btn-accent" id="btn-import-pdf-side" title="Import PDF"><i class="fa-solid fa-file-import"></i></button>
+                <button class="btn btn-accent" id="btn-export-pdf-side" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
+                <button class="btn btn-accent" id="btn-import-ppt-side" title="Import PPT"><i class="fa-solid fa-file-powerpoint"></i></button>
+                <button class="btn btn-accent" id="btn-export-ppt-side" title="Export PPT"><i class="fa-regular fa-file-powerpoint"></i></button>
+            </div>
+        </div>
+
+        <!-- BOTTOM WORKSPACE -->
+        <div id="bottom-workspace">
+
+            <!-- NAV & ZOOM ROW -->
+            <div id="nav-zoom-row" class="glass-panel">
+                <button class="btn" id="btn-undo" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>
+                <button class="btn" id="btn-redo" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>
+                <div class="sep"></div>
+                <button class="btn" id="btn-zoom-out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                <button class="btn" id="btn-zoom-reset"><i class="fa-solid fa-expand"></i></button>
+                <button class="btn" id="btn-zoom-in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                <div class="sep"></div>
+                <button class="btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+                <span id="page-indicator">1 / 1</span>
+                <button class="btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+                <button class="btn" id="btn-add-page" title="Add Page"><i class="fa-solid fa-file-circle-plus"></i></button>
+                <button class="btn btn-danger" id="btn-delete-page"><i class="fa-solid fa-trash"></i></button>
+            </div>
+
+            <!-- MAIN TOOLBAR -->
+            <div id="main-toolbar" class="glass-panel">
+                <button class="btn" id="btn-theme"><i class="fa-solid fa-moon"></i></button>
+                <span id="file-name-label" title="Tap to rename">Untitled</span>
+                <!-- BACK/HOME BUTTON -->
+                <button class="btn" id="btn-open" title="Back to Home"><i class="fa-solid fa-house"></i></button>
+                <button class="btn" id="btn-save" title="Save"><i class="fa-solid fa-floppy-disk"></i></button>
+                <button id="btn-autosave" title="Toggle Auto Save"><i class="fa-solid fa-rotate" style="margin-right:3px;font-size:11px;"></i>Auto</button>
+                <div class="sep"></div>
+                <button class="btn" id="btn-clear" title="Clear Canvas"><i class="fa-solid fa-eraser"></i></button>
+
+                <div class="sep"></div>
+
+                <!-- Drawing Tools -->
+                <button class="btn active tool-btn" data-tool="select"><i class="fa-solid fa-arrow-pointer"></i></button>
+                <button class="btn tool-btn" data-tool="view"><i class="fa-solid fa-hand"></i></button>
+                <button class="btn tool-btn" data-tool="pen"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn tool-btn" data-tool="dashed"><i class="fa-solid fa-pen-nib"></i></button>
+                <button class="btn tool-btn" data-tool="brush"><i class="fa-solid fa-paint-brush"></i></button>
+                <button class="btn tool-btn" data-tool="highlighter"><i class="fa-solid fa-marker"></i></button>
+                <button class="btn tool-btn" data-tool="eraser"><i class="fa-solid fa-delete-left"></i></button>
+                <button class="btn tool-btn" data-tool="laser"><i class="fa-solid fa-rss"></i></button>
+                <button class="btn tool-btn" data-tool="magic"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+
+                <div style="position:relative;" id="shape-container">
+                    <button class="btn" id="btn-shapes"><i class="fa-solid fa-shapes"></i></button>
+                </div>
+
+                <!-- Color & Background -->
+                <div class="sep" id="color-sep"></div>
+                <div id="current-color-box" style="background:#5b6cf9; display:flex;" title="Color / Background"></div>
+
+                <!-- Thickness -->
+                <div id="thickness-row">
+                    <div id="thickness-preview" style="width:6px;height:6px;"></div>
+                    <div id="size-slider-wrap">
+                        <input type="range" id="size-slider" min="1" max="100" value="3">
+                    </div>
+                    <div id="thickness-pct">3%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- URL Panel -->
+        <div class="popup-menu" id="url-input-panel">
+            <div class="color-sec">Website URL डालें</div>
+            <input type="text" id="url-input-field" placeholder="https://example.com">
+            <div class="url-actions">
+                <button id="url-cancel-btn">Cancel</button>
+                <button id="url-insert-btn">Insert Link</button>
+            </div>
+        </div>
+
+        <!-- Shapes Submenu -->
+        <div class="popup-menu" id="shapes-submenu">
+            <div class="color-grid" style="grid-template-columns:repeat(5,1fr);">
+                <button class="btn shape-btn" data-shape="rect"><i class="fa-regular fa-square"></i></button>
+                <button class="btn shape-btn" data-shape="circle"><i class="fa-regular fa-circle"></i></button>
+                <button class="btn shape-btn" data-shape="triangle"><i class="fa-solid fa-play" style="transform:rotate(-90deg)"></i></button>
+                <button class="btn shape-btn" data-shape="line"><i class="fa-solid fa-minus"></i></button>
+                <button class="btn shape-btn" data-shape="arrow"><i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+        </div>
+
+        <!-- Color Picker Panel -->
+        <div class="popup-menu" id="color-picker-panel">
+            <div class="color-sec">Standard Colors</div>
+            <div class="color-grid" id="standard-colors-grid"></div>
+            <div class="color-sec">Recent Colors</div>
+            <div class="color-grid" id="recent-colors-grid"></div>
+            <input type="color" id="native-color-picker" style="opacity:0;position:absolute;width:0;height:0;">
+            <button id="btn-custom-color" style="margin-top:10px;width:100%;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--hover);color:var(--text);cursor:pointer;font-family:inherit;font-size:13px;">
+                <i class="fa-solid fa-palette"></i> More Colors...
+            </button>
+            <div class="bg-btns">
+                <button id="btn-set-local-bg">Page BG</button>
+                <button id="btn-set-global-bg">All Pages BG</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HIDDEN INPUTS -->
+    <input type="file" id="file-image" accept="image/*" style="display:none;">
+    <input type="file" id="file-video" accept="video/mp4,video/webm,video/ogg" style="display:none;">
+    <input type="file" id="file-pdf" accept="application/pdf" style="display:none;">
+    <input type="file" id="file-ppt" accept=".pptx,.ppt" style="display:none;">
+
+<script>
+    const App = {
+        canvas: null, pages: [], currentPageIndex: 0,
+        history: [], historyIndex: -1, isHistoryAction: false,
+        settings: { color: '#5b6cf9', size: 3, tool: 'select', theme: 'light', globalBgColor: null },
+        recentColors: ['#5b6cf9','#ef4444','#10b981','#f59e0b','#1a1d2e','#ffffff'],
+        standardColors: ['#000000','#1a1d2e','#374151','#6b7280','#d1d5db','#ffffff',
+                         '#fef08a','#ef4444','#f97316','#10b981','#22c55e','#06b6d4',
+                         '#5b6cf9','#8b5cf6','#ec4899','#f43f5e','#78716c','#0ea5e9'],
+        isPanning: false, lastPosX: 0, lastPosY: 0, activeVideo: null,
+        home: { currentFolderId: null, searchQuery: '', showFavoritesOnly: false },
+        currentFileId: null, isDirty: false, _toastTimer: null,
+        boardMode: 'edit',
+        pendingMode: 'edit',
+        autoSave: false,
+        _autoSaveTimer: null,
+        _autoSaveIndicatorTimer: null
+    };
+
+    let AppData = { files: {}, folders: {} };
+
+    // ============ INIT ============
+    function init() {
+        const wrapper = document.getElementById('canvas-wrapper');
+        const el = document.getElementById('board');
+        el.width = wrapper.clientWidth; el.height = wrapper.clientHeight;
+        App.canvas = new fabric.Canvas('board', {
+            isDrawingMode: false, selection: true,
+            preserveObjectStacking: true, backgroundColor: 'transparent'
+        });
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        loadAppData(); setupBrushes(); initColorPalette(); bindEvents(); bindHomeEvents();
+        window.addEventListener('resize', () => {
+            if(document.getElementById('board-view').style.display !== 'none') {
+                App.canvas.setWidth(wrapper.clientWidth); App.canvas.setHeight(wrapper.clientHeight);
+                App.canvas.renderAll();
+            }
+        });
+        restoreState(); setTool('select'); updateColorUI(App.settings.color);
+        showHomeView(); renderHome();
+        requestAnimationFrame(renderLoop);
+        bindSaveConfirmModal();
+    }
+
+    // ============ BRUSHES ============
+    function setupBrushes() {
+        App.brushes = {
+            pen: new fabric.PencilBrush(App.canvas),
+            dashed: new fabric.PencilBrush(App.canvas),
+            magic: new fabric.PencilBrush(App.canvas),
+            brush: new fabric.PencilBrush(App.canvas),
+            highlighter: new fabric.PencilBrush(App.canvas)
+        };
+        App.brushes.brush.shadow = new fabric.Shadow({ blur: 5 });
+        App.brushes.dashed.strokeDashArray = [10, 15];
+    }
+
+    function updateBrush() {
+        const c = App.canvas, tool = App.settings.tool, size = App.settings.size, color = App.settings.color;
+        const drawingTools = ['pen','dashed','magic','brush','highlighter'];
+        if (!drawingTools.includes(tool)) return;
+        if (tool === 'pen' || tool === 'magic') {
+            c.freeDrawingBrush = App.brushes[tool]; App.brushes[tool].width = size; App.brushes[tool].color = color;
+        } else if (tool === 'dashed') {
+            c.freeDrawingBrush = App.brushes.dashed; App.brushes.dashed.width = size; App.brushes.dashed.color = color;
+        } else if (tool === 'brush') {
+            c.freeDrawingBrush = App.brushes.brush; App.brushes.brush.width = size * 3; App.brushes.brush.color = color;
+            App.brushes.brush.shadow.color = color;
+        } else if (tool === 'highlighter') {
+            c.freeDrawingBrush = App.brushes.highlighter; App.brushes.highlighter.width = size * 6;
+            const r=parseInt(color.slice(1,3),16), g=parseInt(color.slice(3,5),16), b=parseInt(color.slice(5,7),16);
+            App.brushes.highlighter.color = `rgba(${r},${g},${b},0.3)`;
+        }
+    }
+
+    // ============ ERASER LOGIC ============
+    // True eraser: removes only drawn path/shape objects that are under the eraser
+    // Does NOT affect image or video objects
+    let _eraserActive = false;
+    let _eraserRect = { x: 0, y: 0 };
+
+    function getEraserSize() {
+        return Math.max(12, App.settings.size * 1.5);
+    }
+
+    function eraseAtPoint(canvasX, canvasY) {
+        const sz = getEraserSize();
+        const half = sz / 2;
+        const objects = App.canvas.getObjects().filter(o => {
+            // Skip images and videos — cannot erase them
+            if (o.type === 'image' || o.isVideoElementObject) return false;
+            // Skip link text objects
+            if (o.isLinkObject) return false;
+            return true;
+        });
+        let changed = false;
+        objects.forEach(obj => {
+            const br = obj.getBoundingRect(true, true);
+            // Check if eraser square overlaps bounding rect
+            if (br.left < canvasX + half &&
+                br.left + br.width > canvasX - half &&
+                br.top < canvasY + half &&
+                br.top + br.height > canvasY - half) {
+                App.canvas.remove(obj);
+                changed = true;
+            }
+        });
+        if (changed) {
+            App.canvas.requestRenderAll();
+            triggerAutosave();
+        }
+    }
+
+    // ============ TOOLS ============
+    function setTool(tool) {
+        App.settings.tool = tool;
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        const ab = document.querySelector(`.tool-btn[data-tool="${tool}"]`);
+        if(ab) ab.classList.add('active');
+
+        // Drawing mode: only for non-eraser drawing tools
+        const regularDrawTools = ['pen','dashed','magic','brush','highlighter'];
+        App.canvas.isDrawingMode = regularDrawTools.includes(tool);
+
+        // In view/hand mode: no selection
+        App.canvas.selection = (tool === 'select');
+
+        // Also make objects non-selectable in view/hand/eraser/laser mode
+        if (tool === 'view' || tool === 'laser' || tool === 'eraser') {
+            App.canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
+        } else if (tool === 'select') {
+            App.canvas.getObjects().forEach(o => { o.selectable = true; o.evented = true; });
+        }
+
+        App.canvas.defaultCursor = tool === 'view' ? 'grab' : tool === 'text' ? 'text' : tool === 'eraser' ? 'none' : 'crosshair';
+        if(tool === 'select') App.canvas.defaultCursor = 'default';
+
+        // Eraser cursor div
+        const ec = document.getElementById('eraser-cursor');
+        ec.style.display = tool === 'eraser' ? 'block' : 'none';
+
+        const showProps = !['select','view','laser','eraser'].includes(tool);
+        document.getElementById('current-color-box').style.display = 'flex';
+        document.getElementById('thickness-row').style.display = showProps ? 'flex' : 'none';
+        updateThicknessDisplay();
+
+        if(App.canvas.isDrawingMode) updateBrush();
+        closeAllPopups();
+    }
+
+    function updateThicknessDisplay() {
+        const size = App.settings.size;
+        document.getElementById('thickness-pct').innerText = size + '%';
+        const px = Math.max(4, Math.min(36, size * 0.4 + 3));
+        const preview = document.getElementById('thickness-preview');
+        preview.style.width = px + 'px'; preview.style.height = px + 'px';
+        const tool = App.settings.tool;
+        if(tool === 'eraser') {
+            preview.style.background = 'transparent';
+            preview.style.border = '2px solid var(--danger)';
+        } else {
+            preview.style.background = App.settings.color;
+            preview.style.border = 'none';
+        }
+    }
+
+    // ============ MODE MODAL ============
+    function selectMode(m) {
+        App.pendingMode = m;
+        document.getElementById('mode-view-btn').classList.toggle('selected', m === 'view');
+        document.getElementById('mode-edit-btn').classList.toggle('selected', m === 'edit');
+    }
+    function confirmMode() {
+        document.getElementById('mode-modal').classList.remove('show');
+        applyBoardMode(App.pendingMode);
+        showBoardView();
+        loadCurrentFileIntoCanvas();
+    }
+    function applyBoardMode(mode) {
+        App.boardMode = mode;
+        const isEdit = mode === 'edit';
+        document.getElementById('side-panel-insert').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('btn-save').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('btn-autosave').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('btn-clear').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('btn-add-page').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('btn-delete-page').style.display = isEdit ? 'flex' : 'none';
+        document.getElementById('mb-view').classList.toggle('active', mode === 'view');
+        document.getElementById('mb-edit').classList.toggle('active', mode === 'edit');
+        if(!isEdit && !['select','view','pen','laser'].includes(App.settings.tool)) {
+            setTool('select');
+        }
+        App.canvas.isDrawingMode = false;
+        setTool(isEdit ? (App.settings.tool || 'select') : 'select');
+    }
+    function switchBoardMode(mode) { applyBoardMode(mode); }
+
+    // ============ AUTO SAVE ============
+    function toggleAutoSave() {
+        App.autoSave = !App.autoSave;
+        const btn = document.getElementById('btn-autosave');
+        btn.classList.toggle('active', App.autoSave);
+        showToast(App.autoSave ? 'Auto Save चालू ✓' : 'Auto Save बंद');
+    }
+    function triggerAutosave() {
+        App.isDirty = true;
+        if (!App.autoSave || !App.currentFileId) return;
+        clearTimeout(App._autoSaveTimer);
+        App._autoSaveTimer = setTimeout(() => {
+            saveCurrentFile(true);
+            const ind = document.getElementById('autosave-indicator');
+            ind.classList.add('show');
+            clearTimeout(App._autoSaveIndicatorTimer);
+            App._autoSaveIndicatorTimer = setTimeout(() => ind.classList.remove('show'), 2000);
+        }, 900);
+    }
+
+    // ============ SAVE CONFIRM MODAL (Back button) ============
+    function bindSaveConfirmModal() {
+        document.getElementById('scb-save').onclick = () => {
+            saveCurrentFile(true);
+            document.getElementById('save-confirm-modal').classList.remove('show');
+            App.currentFileId = null; showHomeView(); renderHome();
+        };
+        document.getElementById('scb-nosave').onclick = () => {
+            document.getElementById('save-confirm-modal').classList.remove('show');
+            App.isDirty = false;
+            App.currentFileId = null; showHomeView(); renderHome();
+        };
+        document.getElementById('scb-cancel').onclick = () => {
+            document.getElementById('save-confirm-modal').classList.remove('show');
+        };
+    }
+
+    // ============ COLORS ============
+    function initColorPalette() {
+        const stdGrid = document.getElementById('standard-colors-grid');
+        stdGrid.innerHTML = '';
+        App.standardColors.forEach(c => {
+            const d = document.createElement('div'); d.className = 'color-swatch'; d.style.backgroundColor = c;
+            d.onclick = () => selectColor(c); stdGrid.appendChild(d);
+        });
+        renderRecentColors();
+        document.getElementById('btn-custom-color').onclick = () => document.getElementById('native-color-picker').click();
+        document.getElementById('native-color-picker').oninput = e => selectColor(e.target.value);
+        document.getElementById('current-color-box').onclick = e => {
+            e.stopPropagation();
+            const panel = document.getElementById('color-picker-panel');
+            const rect = document.getElementById('current-color-box').getBoundingClientRect();
+            panel.style.left = Math.max(10, rect.left - 60) + 'px';
+            closeAllPopups(); panel.classList.toggle('show');
+        };
+        document.getElementById('btn-set-local-bg').onclick = () => { changeBackground(App.settings.color, false); closeAllPopups(); };
+        document.getElementById('btn-set-global-bg').onclick = () => { changeBackground(App.settings.color, true); closeAllPopups(); };
+    }
+    function renderRecentColors() {
+        const g = document.getElementById('recent-colors-grid'); g.innerHTML = '';
+        App.recentColors.slice(0,6).forEach(c => {
+            const d = document.createElement('div'); d.className = 'color-swatch'; d.style.backgroundColor = c;
+            d.onclick = () => selectColor(c); g.appendChild(d);
+        });
+    }
+    function selectColor(hex) {
+        App.settings.color = hex; updateColorUI(hex);
+        if(!App.recentColors.includes(hex)) { App.recentColors.unshift(hex); if(App.recentColors.length>6) App.recentColors.pop(); renderRecentColors(); }
+        updateBrush(); updateThicknessDisplay();
+        changeSelectedObjectProp('fill_smart', hex);
+    }
+    function updateColorUI(hex) {
+        document.getElementById('current-color-box').style.backgroundColor = hex;
+        updateThicknessDisplay();
+    }
+    function closeAllPopups() {
+        ['shapes-submenu','color-picker-panel','url-input-panel','card-context-menu'].forEach(id => {
+            const el = document.getElementById(id); if(el) el.classList.remove('show');
+        });
+        const om = document.getElementById('object-menu');
+        om.style.visibility = 'hidden'; om.style.opacity = '0';
+    }
+
+    async function changeBackground(color, global) {
+        if(global) {
+            App.settings.globalBgColor = color; saveCurrentPage();
+            for(let i=0; i<App.pages.length; i++) {
+                await new Promise(resolve => {
+                    const tmp = new fabric.Canvas(document.createElement('canvas'));
+                    tmp.loadFromJSON(App.pages[i], () => {
+                        tmp.backgroundColor = color;
+                        App.pages[i] = JSON.stringify(tmp.toJSON(['backgroundColor']));
+                        tmp.dispose(); resolve();
+                    });
+                });
+            }
+            switchPage(App.currentPageIndex, true); App.isDirty = true;
+        } else {
+            App.canvas.backgroundColor = color; App.canvas.requestRenderAll(); saveHistory();
+        }
+    }
+
+    function changeSelectedObjectProp(prop, value) {
+        const act = App.canvas.getActiveObject(); if(!act) return;
+        if(prop === 'fill_smart') {
+            if(['rect','circle','triangle','line','path'].includes(act.type)) act.set('stroke', value);
+            if(act.isText || act.type==='i-text' || act.type==='textbox') act.set('fill', value);
+        } else { act.set(prop, value); }
+        App.canvas.requestRenderAll(); saveHistory();
+    }
+
+    // ============ EVENTS ============
+    function bindEvents() {
+        document.body.addEventListener('click', e => {
+            if(!e.target.closest('.popup-menu') && !e.target.closest('.btn') && !e.target.closest('#object-menu') && !e.target.closest('.card-menu-btn') && !e.target.closest('#btn-autosave')) closeAllPopups();
+        });
+
+        document.querySelectorAll('.tool-btn').forEach(b => b.onclick = e => { e.stopPropagation(); setTool(b.dataset.tool); });
+
+        const slider = document.getElementById('size-slider');
+        slider.oninput = e => {
+            App.settings.size = parseInt(e.target.value);
+            updateBrush(); updateThicknessDisplay();
+            changeSelectedObjectProp('strokeWidth', App.settings.size);
+            // Update eraser cursor size
+            if(App.settings.tool === 'eraser') {
+                const sz = getEraserSize();
+                const ec = document.getElementById('eraser-cursor');
+                ec.style.width = sz + 'px'; ec.style.height = sz + 'px';
+            }
+        };
+
+        // SHAPES
+        document.getElementById('btn-shapes').onclick = e => { e.stopPropagation(); closeAllPopups(); document.getElementById('shapes-submenu').classList.add('show'); };
+        document.querySelectorAll('.shape-btn').forEach(b => b.onclick = e => { e.stopPropagation(); addShape(b.dataset.shape); setTool('select'); closeAllPopups(); });
+
+        // URL
+        const urlOpenFn = e => {
+            e.stopPropagation(); closeAllPopups();
+            document.getElementById('url-input-field').value = '';
+            document.getElementById('url-input-panel').classList.add('show');
+            setTimeout(() => document.getElementById('url-input-field').focus(), 50);
+        };
+        document.getElementById('url-cancel-btn').onclick = () => closeAllPopups();
+        document.getElementById('url-insert-btn').onclick = () => { insertUrlLink(); closeAllPopups(); };
+        document.getElementById('url-input-field').addEventListener('keydown', e => { if(e.key==='Enter'){ insertUrlLink(); closeAllPopups(); } });
+
+        // SIDE TOOLBAR
+        document.getElementById('btn-text-side').onclick = e => { e.stopPropagation(); setTool('text'); };
+        document.getElementById('btn-image-side').onclick = () => document.getElementById('file-image').click();
+        document.getElementById('btn-video-side').onclick = () => document.getElementById('file-video').click();
+        document.getElementById('btn-url-side').onclick = urlOpenFn;
+        document.getElementById('btn-import-pdf-side').onclick = () => document.getElementById('file-pdf').click();
+        document.getElementById('btn-export-pdf-side').onclick = exportPDF;
+        document.getElementById('btn-import-ppt-side').onclick = () => document.getElementById('file-ppt').click();
+        document.getElementById('btn-export-ppt-side').onclick = exportPPTX;
+
+        document.getElementById('file-image').onchange = handleImage;
+        document.getElementById('file-video').onchange = handleVideo;
+        document.getElementById('file-pdf').onchange = importPDF;
+        document.getElementById('file-ppt').onchange = importPPTXMock;
+
+        // NAV
+        document.getElementById('btn-add-page').onclick = addPage;
+        document.getElementById('btn-delete-page').onclick = deletePage;
+        document.getElementById('btn-prev-page').onclick = () => switchPage(App.currentPageIndex - 1);
+        document.getElementById('btn-next-page').onclick = () => switchPage(App.currentPageIndex + 1);
+        document.getElementById('btn-undo').onclick = undo;
+        document.getElementById('btn-redo').onclick = redo;
+        document.getElementById('btn-zoom-in').onclick = () => zoom(1.2);
+        document.getElementById('btn-zoom-out').onclick = () => zoom(0.8);
+        document.getElementById('btn-zoom-reset').onclick = resetZoom;
+        document.getElementById('btn-clear').onclick = () => { if(confirm('Canvas साफ करें?')){ App.canvas.clear(); App.canvas.backgroundColor = App.settings.globalBgColor||'transparent'; saveHistory(); } };
+        document.getElementById('btn-theme').onclick = toggleTheme;
+        document.getElementById('btn-save').onclick = () => saveCurrentFile(false);
+        document.getElementById('btn-autosave').onclick = toggleAutoSave;
+        document.getElementById('file-name-label').onclick = renameCurrentFile;
+
+        // BACK/HOME BUTTON — with save confirm
+        document.getElementById('btn-open').onclick = goHome;
+
+        bindCanvasGestures(); bindObjectContextActions();
+    }
+
+    function toggleTheme() {
+        App.settings.theme = App.settings.theme==='light'?'dark':'light';
+        document.body.setAttribute('data-theme', App.settings.theme);
+        updateBrush(); saveState();
+    }
+
+    let touchStartDist=0, initialZoom=1;
+    function bindCanvasGestures() {
+        const wrapper = document.getElementById('canvas-wrapper');
+
+        wrapper.addEventListener('touchstart', e => {
+            if(e.touches.length===2) {
+                touchStartDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+                initialZoom = App.canvas.getZoom();
+            }
+        });
+        wrapper.addEventListener('touchmove', e => {
+            if(e.touches.length===2) {
+                const dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+                let scale = (dist/touchStartDist)*initialZoom;
+                scale = Math.min(20, Math.max(0.1, scale));
+                const center = new fabric.Point((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2);
+                App.canvas.zoomToPoint(center, scale); e.preventDefault();
+            }
+        });
+
+        // Eraser cursor tracking + erasing on move
+        document.addEventListener('mousemove', e => {
+            if(App.settings.tool === 'eraser') {
+                const ec = document.getElementById('eraser-cursor');
+                ec.style.left = e.clientX + 'px'; ec.style.top = e.clientY + 'px';
+                const sz = getEraserSize();
+                ec.style.width = sz + 'px'; ec.style.height = sz + 'px';
+                if (_eraserActive) {
+                    const pt = App.canvas.getPointer({ clientX: e.clientX, clientY: e.clientY });
+                    eraseAtPoint(pt.x, pt.y);
+                }
+            }
+        });
+
+        App.canvas.on('mouse:down', opt => {
+            const evt = opt.e;
+
+            // ERASER: start erasing
+            if (App.settings.tool === 'eraser') {
+                _eraserActive = true;
+                const pt = App.canvas.getPointer(evt);
+                eraseAtPoint(pt.x, pt.y);
+                return;
+            }
+
+            // HAND/VIEW MODE: pan only, no selection
+            if(App.settings.tool==='view' || evt.altKey || evt.button===1) {
+                App.isPanning=true; App.canvas.defaultCursor='grabbing';
+                App.lastPosX = evt.clientX||(evt.touches&&evt.touches[0].clientX);
+                App.lastPosY = evt.clientY||(evt.touches&&evt.touches[0].clientY);
+                // Deselect anything selected
+                App.canvas.discardActiveObject(); App.canvas.requestRenderAll();
+                return;
+            }
+
+            if(App.settings.tool==='text' && !opt.target) {
+                const ptr = App.canvas.getPointer(opt.e);
+                const txt = new fabric.IText('Text...', { left:ptr.x, top:ptr.y, fill:App.settings.color, fontSize:Math.max(24,App.settings.size*6) });
+                App.canvas.add(txt); App.canvas.setActiveObject(txt); txt.enterEditing(); txt.selectAll(); saveHistory(); setTool('select');
+            }
+        });
+
+        App.canvas.on('mouse:move', opt => {
+            if(App.isPanning) {
+                const e=opt.e;
+                const cX=e.clientX||(e.touches&&e.touches[0].clientX); const cY=e.clientY||(e.touches&&e.touches[0].clientY);
+                const vpt=App.canvas.viewportTransform; vpt[4]+=cX-App.lastPosX; vpt[5]+=cY-App.lastPosY;
+                App.canvas.requestRenderAll(); App.lastPosX=cX; App.lastPosY=cY;
+            }
+            if(App.settings.tool==='laser' && !App.isPanning) {
+                const pt={x:opt.e.clientX||(opt.e.touches&&opt.e.touches[0].clientX), y:opt.e.clientY||(opt.e.touches&&opt.e.touches[0].clientY)};
+                createLaserPoint(pt.x, pt.y);
+            }
+            // Touch eraser move
+            if(App.settings.tool === 'eraser' && _eraserActive && opt.e.touches) {
+                const touch = opt.e.touches[0];
+                const ec = document.getElementById('eraser-cursor');
+                ec.style.left = touch.clientX + 'px'; ec.style.top = touch.clientY + 'px';
+                const pt = App.canvas.getPointer(opt.e);
+                eraseAtPoint(pt.x, pt.y);
+            }
+        });
+
+        App.canvas.on('mouse:up', () => {
+            App.isPanning=false;
+            _eraserActive = false;
+            if(App.settings.tool==='view') App.canvas.defaultCursor='grab';
+            if(App.settings.tool==='eraser') saveHistory();
+        });
+
+        App.canvas.on('mouse:wheel', opt => {
+            let z = App.canvas.getZoom() * (0.999**opt.e.deltaY);
+            z=Math.min(20,Math.max(0.05,z));
+            App.canvas.zoomToPoint({x:opt.e.offsetX,y:opt.e.offsetY}, z);
+            opt.e.preventDefault(); opt.e.stopPropagation();
+        });
+
+        App.canvas.on('path:created', opt => {
+            if(App.settings.tool==='magic') handleMagicPenFlicker(opt.path);
+            else if(!App.isHistoryAction) { saveHistory(); triggerAutosave(); }
+        });
+        App.canvas.on('object:modified', () => { if(!App.isHistoryAction) { saveHistory(); triggerAutosave(); } });
+
+        App.canvas.on('mouse:dblclick', opt => {
+            if(opt.target && opt.target.isLinkObject && opt.target.linkUrl) {
+                window.open(opt.target.linkUrl, '_blank');
+            }
+        });
+    }
+
+    function bindObjectContextActions() {
+        App.canvas.on('selection:created', showObjectMenu);
+        App.canvas.on('selection:updated', showObjectMenu);
+        App.canvas.on('selection:cleared', hideVideoAndObjectMenu);
+
+        document.getElementById('ctx-mirror-x').onclick = () => { const o=App.canvas.getActiveObject(); if(o){o.set('flipX',!o.flipX); App.canvas.renderAll(); saveHistory();} };
+        document.getElementById('ctx-mirror-y').onclick = () => { const o=App.canvas.getActiveObject(); if(o){o.set('flipY',!o.flipY); App.canvas.renderAll(); saveHistory();} };
+        document.getElementById('ctx-delete').onclick = () => { App.canvas.getActiveObjects().forEach(o=>App.canvas.remove(o)); App.canvas.discardActiveObject(); saveHistory(); };
+        document.getElementById('ctx-copy').onclick = () => {
+            const o=App.canvas.getActiveObject();
+            if(o) o.clone(c => { c.set({left:c.left+20,top:c.top+20,evented:true}); App.canvas.add(c); App.canvas.setActiveObject(c); saveHistory(); });
+        };
+        document.getElementById('ctx-open-link').onclick = () => {
+            const o=App.canvas.getActiveObject();
+            if(o && o.isLinkObject && o.linkUrl) window.open(o.linkUrl,'_blank');
+        };
+    }
+
+    function showObjectMenu() {
+        if (App.settings.tool === 'eraser' || App.settings.tool === 'view' || App.settings.tool === 'laser') return;
+        const act = App.canvas.getActiveObject(); if(!act) return;
+        if(act.isVideoElementObject) attachVideoOverlayControls(act);
+        else document.getElementById('video-overlay-controls').style.visibility='hidden';
+        document.getElementById('ctx-open-link').style.display = act.isLinkObject ? 'inline-flex' : 'none';
+        const mnu = document.getElementById('object-menu');
+        mnu.style.visibility='visible'; mnu.style.opacity='1';
+        const upPos = () => {
+            if(!App.canvas.getActiveObject()) return;
+            const b=act.getBoundingRect();
+            mnu.style.left=b.left+'px'; mnu.style.top=(b.top-46)+'px';
+        };
+        upPos(); act.on('moving',upPos); act.on('scaling',upPos);
+    }
+    function hideVideoAndObjectMenu() {
+        document.getElementById('object-menu').style.visibility='hidden'; document.getElementById('object-menu').style.opacity='0';
+        document.getElementById('video-overlay-controls').style.visibility='hidden'; App.activeVideo=null;
+    }
+
+    function attachVideoOverlayControls(obj) {
+        App.activeVideo = obj.vidElem;
+        const vc = document.getElementById('video-overlay-controls');
+        vc.style.visibility='visible'; vc.style.opacity='1';
+        const upVc = () => { const b=obj.getBoundingRect(); vc.style.left=b.left+'px'; vc.style.top=(b.top+b.height+10)+'px'; };
+        upVc(); obj.on('moving',upVc); obj.on('scaling',upVc);
+        const icon = document.getElementById('vid-play-pause');
+        icon.className = obj.vidElem.paused ? 'fa-solid fa-play' : 'fa-solid fa-pause';
+        icon.onclick = () => {
+            if(obj.vidElem.paused){obj.vidElem.play();icon.className='fa-solid fa-pause';}
+            else{obj.vidElem.pause();icon.className='fa-solid fa-play';}
+        };
+        const seeker = document.getElementById('vid-seek');
+        seeker.oninput = e => { obj.vidElem.currentTime=(e.target.value/100)*obj.vidElem.duration; };
+        const upTmln = () => {
+            if(App.activeVideo===obj.vidElem){ if(obj.vidElem.duration) seeker.value=(obj.vidElem.currentTime/obj.vidElem.duration)*100; requestAnimationFrame(upTmln); }
+        }; requestAnimationFrame(upTmln);
+    }
+
+    function handleMagicPenFlicker(path) {
+        let flickers=0, isVis=true;
+        const iv = setInterval(() => {
+            isVis=!isVis; path.set('opacity', isVis?1:0.1); App.canvas.requestRenderAll(); flickers++;
+            if(flickers>=10){ clearInterval(iv); App.canvas.remove(path); }
+        }, 500);
+    }
+
+    // ============ SHAPES ============
+    function addShape(type) {
+        const ctr=App.canvas.getCenter(), color=App.settings.color, size=App.settings.size;
+        const opts = {left:ctr.left,top:ctr.top,fill:'transparent',stroke:color,strokeWidth:size,originX:'center',originY:'center'};
+        let s;
+        if(type==='rect') s=new fabric.Rect({...opts,width:150,height:100});
+        else if(type==='circle') s=new fabric.Circle({...opts,radius:60});
+        else if(type==='triangle') s=new fabric.Triangle({...opts,width:120,height:120});
+        else if(type==='line') s=new fabric.Line([-100,0,100,0],opts);
+        else if(type==='arrow') s=new fabric.Path('M 0 0 L 100 0 L 100 -10 L 120 5 L 100 20 L 100 10 L 0 10 z',{...opts,fill:color});
+        if(s){ App.canvas.add(s); App.canvas.setActiveObject(s); saveHistory(); }
+    }
+
+    function insertUrlLink() {
+        const raw = document.getElementById('url-input-field').value.trim(); if(!raw) return;
+        let url = raw; if(!/^https?:\/\//i.test(url)) url='https://'+url;
+        const ctr = App.canvas.getCenter();
+        const txt = new fabric.Textbox(url, {
+            left:ctr.left, top:ctr.top, originX:'center', originY:'center',
+            fontSize:18, fill:'#5b6cf9', underline:true,
+            backgroundColor:'rgba(255,255,255,0.88)', padding:10,
+            editable:false, splitByGrapheme:false
+        });
+        txt.isLinkObject=true; txt.linkUrl=url;
+        App.canvas.add(txt); App.canvas.setActiveObject(txt); saveHistory(); setTool('select');
+        showToast('Link inserted! Double-tap to open');
+    }
+
+    function handleImage(e) {
+        const file=e.target.files[0]; if(!file) return;
+        const rd=new FileReader();
+        rd.onload=f => {
+            fabric.Image.fromURL(f.target.result, img => {
+                img.scaleToWidth(Math.min(img.width, App.canvas.width*0.5));
+                App.canvas.centerObject(img); App.canvas.add(img); App.canvas.setActiveObject(img); saveHistory();
+            });
+        }; rd.readAsDataURL(file); e.target.value='';
+    }
+    function handleVideo(e) {
+        const file=e.target.files[0]; if(!file) return;
+        const vidEl=document.createElement('video'); vidEl.src=URL.createObjectURL(file); vidEl.loop=false;
+        vidEl.onloadedmetadata=()=>{
+            vidEl.width=vidEl.videoWidth; vidEl.height=vidEl.videoHeight;
+            const vo=new fabric.Image(vidEl,{left:App.canvas.width/2,top:App.canvas.height/2,originX:'center',originY:'center',objectCaching:false});
+            vo.scaleToWidth(Math.min(vidEl.videoWidth, App.canvas.width*0.6));
+            vo.isVideoElementObject=true; vo.vidElem=vidEl;
+            App.canvas.add(vo); App.canvas.setActiveObject(vo); vidEl.play(); saveHistory();
+        }; e.target.value='';
+    }
+
+    // ============ PAGES ============
+    function saveCurrentPage() { App.pages[App.currentPageIndex] = JSON.stringify(App.canvas.toJSON(['background','backgroundColor'])); }
+    function addPage() {
+        saveCurrentPage(); App.canvas.clear();
+        App.canvas.backgroundColor = App.settings.globalBgColor||'transparent';
+        App.pages.splice(App.currentPageIndex+1, 0, JSON.stringify(App.canvas.toJSON(['backgroundColor'])));
+        App.currentPageIndex++;
+        App.history=[]; App.historyIndex=-1; saveHistory(); updatePageIndicator();
+    }
+    function deletePage() {
+        if(App.pages.length<=1){ App.canvas.clear(); App.canvas.backgroundColor=App.settings.globalBgColor||'transparent'; saveHistory(); alert('Canvas cleared! Minimum 1 page.'); return; }
+        if(confirm('Delete current page?')){ App.pages.splice(App.currentPageIndex,1); if(App.currentPageIndex>=App.pages.length) App.currentPageIndex=App.pages.length-1; switchPage(App.currentPageIndex,true); }
+    }
+    function switchPage(idx, skipSave) {
+        if(idx<0||idx>=App.pages.length) return;
+        if(!skipSave) saveCurrentPage();
+        App.currentPageIndex=idx; App.isHistoryAction=true;
+        App.canvas.loadFromJSON(App.pages[idx],()=>{ App.canvas.requestRenderAll(); App.isHistoryAction=false; App.history=[App.pages[idx]]; App.historyIndex=0; hideVideoAndObjectMenu(); });
+        updatePageIndicator();
+    }
+    function updatePageIndicator() { document.getElementById('page-indicator').innerText=`${App.currentPageIndex+1} / ${App.pages.length}`; }
+    function undo() { if(App.historyIndex>0){ App.isHistoryAction=true; App.historyIndex--; App.canvas.loadFromJSON(App.history[App.historyIndex],()=>{ App.canvas.requestRenderAll(); App.isHistoryAction=false; saveCurrentPage(); }); } }
+    function redo() { if(App.historyIndex<App.history.length-1){ App.isHistoryAction=true; App.historyIndex++; App.canvas.loadFromJSON(App.history[App.historyIndex],()=>{ App.canvas.requestRenderAll(); App.isHistoryAction=false; saveCurrentPage(); }); } }
+    function saveHistory() {
+        if(App.isHistoryAction) return;
+        const jsn=JSON.stringify(App.canvas.toJSON(['backgroundColor']));
+        App.history=App.history.slice(0,App.historyIndex+1); App.history.push(jsn); App.historyIndex++; saveCurrentPage();
+        App.isDirty=true;
+    }
+    function zoom(f){ let z=App.canvas.getZoom()*f; z=Math.min(20,Math.max(0.1,z)); App.canvas.zoomToPoint({x:App.canvas.width/2,y:App.canvas.height/2},z); }
+    function resetZoom(){ App.canvas.setViewportTransform([1,0,0,1,0,0]); App.canvas.requestRenderAll(); }
+
+    // ============ PDF / PPT ============
+    function showLoading(msg){ document.getElementById('loader-text').innerText=msg; document.getElementById('loader-overlay').style.display='flex'; }
+    function hideLoading(){ document.getElementById('loader-overlay').style.display='none'; }
+
+    async function exportPDF() {
+        showLoading('Generating PDF...'); saveCurrentPage();
+        const {jsPDF}=window.jspdf; const pdf=new jsPDF({orientation:'landscape',unit:'px',format:[App.canvas.width,App.canvas.height]});
+        let cid=App.currentPageIndex;
+        for(let i=0;i<App.pages.length;i++){
+            if(i>0) pdf.addPage([App.canvas.width,App.canvas.height],'landscape');
+            await new Promise(r=>App.canvas.loadFromJSON(App.pages[i],()=>{
+                if(!App.canvas.backgroundColor) App.canvas.backgroundColor='#ffffff'; App.canvas.renderAll();
+                setTimeout(()=>{ pdf.addImage(App.canvas.toDataURL({format:'jpeg',quality:0.95}),'JPEG',0,0,App.canvas.width,App.canvas.height); r(); },50);
+            }));
+        }
+        pdf.save('Whiteboard.pdf'); switchPage(cid); hideLoading();
+    }
+    async function importPDF(e) {
+        const f=e.target.files[0]; if(!f) return; showLoading('Importing PDF...');
+        try{
+            const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+            for(let i=1;i<=pdf.numPages;i++){
+                const page=await pdf.getPage(i); const vpt=page.getViewport({scale:2.0});
+                const tCn=document.createElement('canvas'); tCn.width=vpt.width; tCn.height=vpt.height;
+                await page.render({canvasContext:tCn.getContext('2d'),viewport:vpt}).promise;
+                if(!(i===1&&App.pages.length===1&&App.history.length<=1)) addPage();
+                await new Promise(r=>fabric.Image.fromURL(tCn.toDataURL('image/jpeg'),img=>{ img.scaleToWidth(App.canvas.width); App.canvas.setBackgroundImage(img,App.canvas.renderAll.bind(App.canvas)); saveCurrentPage(); r(); }));
+            } switchPage(App.pages.length-1);
+        }catch(er){alert('Error importing PDF');}
+        hideLoading(); e.target.value='';
+    }
+    async function exportPPTX() {
+        showLoading('Generating PowerPoint...'); saveCurrentPage();
+        let pptx=new PptxGenJS(), cid=App.currentPageIndex;
+        try{
+            for(let i=0;i<App.pages.length;i++){
+                let slide=pptx.addSlide();
+                await new Promise(res=>{ App.canvas.loadFromJSON(App.pages[i],()=>{ if(!App.canvas.backgroundColor) App.canvas.backgroundColor='#ffffff'; App.canvas.renderAll(); setTimeout(()=>{ slide.addImage({data:App.canvas.toDataURL({format:'jpeg',quality:0.9}),x:0,y:0,w:'100%',h:'100%'}); res(); },50); }); });
+            }
+            pptx.writeFile({fileName:'DigitalBoard_Export.pptx'}).then(()=>{ switchPage(cid); hideLoading(); });
+        }catch(e){ hideLoading(); alert('Error exporting PPT!'); switchPage(cid); }
+    }
+    function importPPTXMock(e){
+        const f=e.target.files[0]; if(!f) return;
+        alert('PPT import requires server-side processing. Please convert PPT to PDF first, then use Import PDF.');
+        e.target.value='';
+    }
+
+    function createLaserPoint(x,y){
+        const d=document.createElement('div'); d.className='laser-point'; d.style.left=x+'px'; d.style.top=y+'px';
+        document.body.appendChild(d);
+        setTimeout(()=>{ d.style.opacity='0'; d.style.transform='scale(2.5)'; },50);
+        setTimeout(()=>d.remove(),450);
+    }
+
+    function saveState(){ try{ localStorage.setItem('tb_theme',App.settings.theme); }catch(e){} }
+    function restoreState(){ if(localStorage.getItem('tb_theme')==='dark') toggleTheme(); }
+    function renderLoop(){
+        if(App.canvas && App.canvas.getObjects().some(o=>o.isVideoElementObject)) App.canvas.requestRenderAll();
+        requestAnimationFrame(renderLoop);
+    }
+
+    // ============ FILE MANAGER ============
+    function loadAppData(){
+        try{ const r=localStorage.getItem('tb_appdata_v1'); if(r) AppData=JSON.parse(r); if(!AppData.files) AppData.files={}; if(!AppData.folders) AppData.folders={}; }
+        catch(e){ AppData={files:{},folders:{}}; }
+    }
+    function persistAppData(){ try{ localStorage.setItem('tb_appdata_v1',JSON.stringify(AppData)); }catch(e){console.error(e);} }
+    function genId(){ return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,9); }
+    function escHtml(s){ const d=document.createElement('div'); d.innerText=s; return d.innerHTML; }
+    function blankPageJSON(bg){ return JSON.stringify({version:fabric.version,objects:[],backgroundColor:bg||undefined}); }
+
+    function showToast(msg){
+        const t=document.getElementById('toast'); t.innerText=msg; t.style.opacity='1';
+        clearTimeout(App._toastTimer); App._toastTimer=setTimeout(()=>{ t.style.opacity='0'; },1800);
+    }
+
+    function showHomeView(){ document.getElementById('home-view').style.display='flex'; document.getElementById('board-view').style.display='none'; }
+    function showBoardView(){
+        document.getElementById('home-view').style.display='none'; document.getElementById('board-view').style.display='block';
+        const w=document.getElementById('canvas-wrapper');
+        App.canvas.setWidth(w.clientWidth); App.canvas.setHeight(w.clientHeight); App.canvas.requestRenderAll();
+    }
+    function loadCurrentFileIntoCanvas(){
+        const file=AppData.files[App.currentFileId]; if(!file) return;
+        App.isHistoryAction=true;
+        App.canvas.loadFromJSON(App.pages[0],()=>{ App.canvas.requestRenderAll(); App.isHistoryAction=false; App.history=[App.pages[0]]; App.historyIndex=0; });
+        updatePageIndicator();
+    }
+
+    function createNewFile(){
+        const name=prompt('Board का नाम डालें:','Untitled Board'); if(name===null) return;
+        const id=genId();
+        AppData.files[id]={ id, name:name.trim()||'Untitled Board', folderId:App.home.currentFolderId, favorite:false, pages:[blankPageJSON(App.settings.globalBgColor||null)], globalBgColor:App.settings.globalBgColor||null, createdAt:Date.now(), updatedAt:Date.now() };
+        persistAppData(); openFile(id);
+    }
+    function createNewFolder(){
+        const name=prompt('Folder का नाम:','New Folder'); if(!name) return;
+        const id=genId();
+        AppData.folders[id]={id,name:name.trim(),parentId:App.home.currentFolderId,createdAt:Date.now()};
+        persistAppData(); renderHome();
+    }
+
+    function openFile(id){
+        const file=AppData.files[id]; if(!file) return;
+        App.currentFileId=id; App.pages=file.pages.slice();
+        App.settings.globalBgColor=file.globalBgColor||null;
+        App.currentPageIndex=0; App.isDirty=false;
+        document.getElementById('file-name-label').innerText=file.name;
+        App.pendingMode='edit';
+        document.getElementById('mode-view-btn').classList.remove('selected');
+        document.getElementById('mode-edit-btn').classList.add('selected');
+        document.getElementById('mode-modal').classList.add('show');
+    }
+
+    function saveCurrentFile(silent){
+        if(!App.currentFileId) return; saveCurrentPage();
+        const file=AppData.files[App.currentFileId]; if(!file) return;
+        file.pages=App.pages.slice(); file.globalBgColor=App.settings.globalBgColor||null; file.updatedAt=Date.now();
+        persistAppData(); App.isDirty=false; if(!silent) showToast('Board Saved! ✓');
+    }
+    function renameCurrentFile(){
+        if(!App.currentFileId) return; const file=AppData.files[App.currentFileId]; if(!file) return;
+        const n=prompt('नया नाम:',file.name); if(n&&n.trim()){ file.name=n.trim(); persistAppData(); document.getElementById('file-name-label').innerText=file.name; }
+    }
+    function goHome(){
+        if(App.isDirty){
+            document.getElementById('save-confirm-modal').classList.add('show');
+        } else {
+            App.currentFileId=null; showHomeView(); renderHome();
+        }
+    }
+    function deleteFolderRecursive(fid){
+        Object.values(AppData.files).filter(f=>f.folderId===fid).forEach(f=>delete AppData.files[f.id]);
+        Object.values(AppData.folders).filter(f=>f.parentId===fid).forEach(f=>deleteFolderRecursive(f.id));
+        delete AppData.folders[fid];
+    }
+
+    // Copy folder with all its files
+    function copyFolder(fid) {
+        const src = AppData.folders[fid]; if(!src) return;
+        const newId = genId();
+        // Find a non-conflicting name
+        let baseName = src.name;
+        let newName = baseName + ' (1)';
+        // Check if name already exists, increment
+        const siblingNames = Object.values(AppData.folders).filter(f=>f.parentId===src.parentId).map(f=>f.name);
+        let counter = 1;
+        while(siblingNames.includes(newName)) { counter++; newName = baseName + ' (' + counter + ')'; }
+        AppData.folders[newId] = { id:newId, name:newName, parentId:src.parentId, createdAt:Date.now() };
+        // Copy files inside
+        Object.values(AppData.files).filter(f=>f.folderId===fid).forEach(file => {
+            const newFileId = genId();
+            AppData.files[newFileId] = Object.assign({}, file, { id:newFileId, folderId:newId, name:file.name, createdAt:Date.now(), updatedAt:Date.now() });
+        });
+        persistAppData(); renderHome();
+        showToast('Folder copied as "' + newName + '"');
+    }
+
+    function renderBreadcrumb(){
+        const bc=document.getElementById('home-breadcrumb');
+        if(App.home.searchQuery){ bc.innerHTML=`<span>🔍 "${escHtml(App.home.searchQuery)}"</span>`; return; }
+        if(App.home.showFavoritesOnly){ bc.innerHTML='<span>⭐ Favorites</span>'; return; }
+        let chain=[],cur=App.home.currentFolderId;
+        while(cur){ const f=AppData.folders[cur]; if(!f) break; chain.unshift(f); cur=f.parentId; }
+        let html=`<span class="crumb" data-id="">🏠 Home</span>`;
+        chain.forEach(f=>html+=` / <span class="crumb" data-id="${f.id}">${escHtml(f.name)}</span>`);
+        bc.innerHTML=html;
+        bc.querySelectorAll('.crumb').forEach(el=>el.onclick=()=>{ App.home.currentFolderId=el.dataset.id||null; renderHome(); });
+    }
+
+    function createFolderCard(folder){
+        const card=document.createElement('div'); card.className='home-card';
+        card.innerHTML=`<div class="card-icon"><i class="fa-solid fa-folder" style="color:#f59e0b;"></i></div><div class="card-name">${escHtml(folder.name)}</div><button class="card-menu-btn" title="Options"><i class="fa-solid fa-ellipsis-vertical"></i></button>`;
+        const open=()=>{ App.home.currentFolderId=folder.id; App.home.searchQuery=''; App.home.showFavoritesOnly=false; document.getElementById('home-search').value=''; document.getElementById('home-fav-toggle').classList.remove('active'); renderHome(); };
+        card.querySelector('.card-icon').onclick=open; card.querySelector('.card-name').onclick=open;
+        card.querySelector('.card-menu-btn').onclick=e=>{ e.stopPropagation(); showFolderCtx(folder,e); };
+        return card;
+    }
+    function createFileCard(file){
+        const card=document.createElement('div'); card.className='home-card';
+        card.innerHTML=`<div class="card-icon"><i class="fa-regular fa-image"></i>${file.favorite?'<i class="fa-solid fa-star fav-badge"></i>':''}</div><div class="card-name">${escHtml(file.name)}</div><button class="card-menu-btn" title="Options"><i class="fa-solid fa-ellipsis-vertical"></i></button>`;
+        const open=()=>openFile(file.id);
+        card.querySelector('.card-icon').onclick=open; card.querySelector('.card-name').onclick=open;
+        card.querySelector('.card-menu-btn').onclick=e=>{ e.stopPropagation(); showFileCtx(file,e); };
+        return card;
+    }
+
+    let ctxTarget=null,ctxType=null;
+    function posAndShowCtx(e){
+        closeAllPopups(); const menu=document.getElementById('card-context-menu');
+        const btn=e.target.closest('button'); const rect=btn.getBoundingClientRect();
+        let left=Math.min(rect.left, window.innerWidth-205); if(left<10) left=10;
+        menu.style.left=left+'px'; menu.style.top=(rect.bottom+6)+'px'; menu.style.bottom='auto';
+        menu.classList.add('show');
+    }
+    function showFileCtx(file,e){
+        ctxTarget=file; ctxType='file';
+        document.getElementById('cctx-favorite').style.display='flex';
+        document.getElementById('cctx-copy-folder').style.display='none';
+        document.getElementById('cctx-fav-label').innerText=file.favorite?'Remove Favorite':'Add Favorite';
+        posAndShowCtx(e);
+    }
+    function showFolderCtx(folder,e){
+        ctxTarget=folder; ctxType='folder';
+        document.getElementById('cctx-favorite').style.display='none';
+        document.getElementById('cctx-copy-folder').style.display='flex';
+        posAndShowCtx(e);
+    }
+
+    function renderHome(){
+        const grid=document.getElementById('home-grid'); grid.innerHTML='';
+        const search=App.home.searchQuery.trim().toLowerCase(), fav=App.home.showFavoritesOnly;
+        let folders=[], files=[];
+        if(search){ files=Object.values(AppData.files).filter(f=>f.name.toLowerCase().includes(search)); folders=Object.values(AppData.folders).filter(f=>f.name.toLowerCase().includes(search)); }
+        else if(fav){ files=Object.values(AppData.files).filter(f=>f.favorite); }
+        else{ folders=Object.values(AppData.folders).filter(f=>f.parentId===App.home.currentFolderId); files=Object.values(AppData.files).filter(f=>f.folderId===App.home.currentFolderId); }
+        folders.sort((a,b)=>a.name.localeCompare(b.name));
+        files.sort((a,b)=>b.updatedAt-a.updatedAt);
+        if(!folders.length && !files.length){
+            const e=document.createElement('div'); e.id='home-empty';
+            e.innerHTML='<i class="fa-solid fa-chalkboard" style="font-size:40px;margin-bottom:12px;display:block;opacity:0.3;"></i>कोई Board नहीं मिला<br><small>+ दबाकर नया बनाएं</small>';
+            grid.appendChild(e);
+        } else {
+            folders.forEach(f=>grid.appendChild(createFolderCard(f)));
+            files.forEach(f=>grid.appendChild(createFileCard(f)));
+        }
+        document.getElementById('home-back-btn').style.display=(App.home.currentFolderId&&!search&&!fav)?'flex':'none';
+        renderBreadcrumb();
+    }
+
+    function bindHomeEvents(){
+        document.getElementById('home-new-file').onclick=createNewFile;
+        document.getElementById('home-new-folder').onclick=createNewFolder;
+        document.getElementById('home-theme').onclick=toggleTheme;
+        document.getElementById('home-back-btn').onclick=()=>{ const cur=AppData.folders[App.home.currentFolderId]; App.home.currentFolderId=cur?cur.parentId:null; renderHome(); };
+        document.getElementById('home-search').oninput=e=>{ App.home.searchQuery=e.target.value; if(e.target.value){App.home.showFavoritesOnly=false; document.getElementById('home-fav-toggle').classList.remove('active');} renderHome(); };
+        document.getElementById('home-fav-toggle').onclick=()=>{ App.home.showFavoritesOnly=!App.home.showFavoritesOnly; if(App.home.showFavoritesOnly){App.home.searchQuery=''; document.getElementById('home-search').value='';} document.getElementById('home-fav-toggle').classList.toggle('active',App.home.showFavoritesOnly); renderHome(); };
+
+        document.getElementById('cctx-rename').onclick=()=>{
+            if(!ctxTarget) return; const n=prompt('नया नाम:',ctxTarget.name);
+            if(n&&n.trim()){ ctxTarget.name=n.trim(); persistAppData(); if(ctxType==='file'&&App.currentFileId===ctxTarget.id) document.getElementById('file-name-label').innerText=ctxTarget.name; renderHome(); }
+            closeAllPopups();
+        };
+        document.getElementById('cctx-favorite').onclick=()=>{ if(ctxTarget&&ctxType==='file'){ ctxTarget.favorite=!ctxTarget.favorite; persistAppData(); renderHome(); } closeAllPopups(); };
+        document.getElementById('cctx-copy-folder').onclick=()=>{ if(ctxTarget&&ctxType==='folder'){ copyFolder(ctxTarget.id); } closeAllPopups(); };
+        document.getElementById('cctx-delete').onclick=()=>{
+            if(!ctxTarget){closeAllPopups();return;}
+            if(ctxType==='file'){ if(confirm(`"${ctxTarget.name}" delete करें?`)){ delete AppData.files[ctxTarget.id]; persistAppData(); renderHome(); } }
+            else{ if(confirm(`"${ctxTarget.name}" folder और सब files delete करें?`)){ deleteFolderRecursive(ctxTarget.id); persistAppData(); renderHome(); } }
+            closeAllPopups();
+        };
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
